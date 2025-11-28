@@ -10,7 +10,6 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
-
 font_path = 'font/Inter-4.1/Inter-ExtraBold.ttf'
 
 
@@ -161,7 +160,14 @@ class TaskBoard:
             command=self.board_selected
         )
         self.board_dropdown.pack(side="left", padx=5, pady=10)
-        self.board_dropdown.bind("<Double-Button-1>", self.rename_board_dialog)
+
+        self.board_name_label = ctk.CTkLabel(
+            self.top_frame,
+            text="",
+            font=(self.font_family, 14, "bold")
+        )
+        self.board_name_label.pack(side="left", padx=(0, 20), pady=10)
+        self.board_name_label.bind("<Double-Button-1>", self.rename_board_dialog)
 
         # Create the Button Factory instance
         button_factory = CTkButtonFactory(self.top_frame, self.font_family)
@@ -204,6 +210,7 @@ class TaskBoard:
         """Updates the current_board when a selection is made in the dropdown."""
         if choice in self.boards:
             self.current_board = choice
+            self.board_name_label.configure(text=choice)
             self.save_data()
             self.render_board()
     
@@ -212,15 +219,18 @@ class TaskBoard:
             return
         dialog = ctk.CTkInputDialog(
             text="Enter new board name:",
-            title="Rename Board"
+            title="Rename Board",
+            entry_text=self.current_board
         )
         new_name = dialog.get_input()
-        if new_name and new_name != self.current_board and new_name not in self.boards:
+        if new_name and new_name.strip() and new_name != self.current_board and new_name not in self.boards:
             board_data = self.boards.pop(self.current_board)
             self.boards[new_name] = board_data
             self.current_board = new_name
+            self.board_name_label.configure(text=new_name)
+            self.board_var.set(new_name)
             self.save_data()
-            self.update_board_dropdown()
+            self.board_dropdown.configure(values=list(self.boards.keys()))
             self.render_board()
     
     # --- Data Management ---
@@ -276,10 +286,12 @@ class TaskBoard:
                  self.current_board = board_names[0]
                  
             self.board_var.set(self.current_board)
+            self.board_name_label.configure(text=self.current_board)
         else:
             self.board_dropdown.configure(values=["No boards"])
             self.board_var.set("No boards")
             self.current_board = None
+            self.board_name_label.configure(text="")
     
     def delete_board_dialog(self):
         if not self.current_board or self.current_board == "No boards":
@@ -455,7 +467,7 @@ class TaskBoard:
     def start_edit_card_title(self, title_label, list_name, idx, card_frame):
         current = title_label.cget("text")
         title_label.destroy()
-        entry = ctk.CTkEntry(card_frame, font=(self.font_family, 11), width=260)
+        entry = ctk.CTkEntry(card_frame, font=(self.font_family, 14), width=260)
         entry.insert(0, current)
         entry.pack(fill="x", padx=10, pady=(10, 5))
         entry.focus()
@@ -473,29 +485,32 @@ class TaskBoard:
         card_frame = ctk.CTkFrame(
             parent,
             corner_radius=8,
-            fg_color="#313244"
+            fg_color="#313244",
+            height=70
         )
-        card_frame.pack(fill="x", padx=5, pady=5)
+        card_frame.pack(fill="x", padx=5, pady=3)
+        card_frame.pack_propagate(False)
         
         # Card title
         title_label = ctk.CTkLabel(
             card_frame,
             text=card["title"],
-            font=(self.font_family, 11),
-            wraplength=240,
-            anchor="w"
+            font=(self.font_family, 14),
+            wraplength=260,
+            anchor="w",
+            justify="left"
         )
-        title_label.pack(fill="x", padx=10, pady=(10, 5))
+        title_label.pack(fill="x", padx=12, pady=(12, 5))
         title_label.bind("<Double-Button-1>", lambda e: self.start_edit_card_title(title_label, list_name, idx, card_frame))
         
         # Card date
         ctk.CTkLabel(
             card_frame,
             text=card["created"],
-            font=(self.font_family, 9),
+            font=(self.font_family, 12),
             text_color="#6c7086",
             anchor="w"
-        ).pack(fill="x", padx=10, pady=(0, 10))
+        ).pack(fill="x", padx=12, pady=(0, 12))
 
 
 if __name__ == "__main__":
