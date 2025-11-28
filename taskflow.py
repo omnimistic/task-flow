@@ -1,9 +1,9 @@
 import customtkinter as ctk
-import tkinter as tk #for the dynamic scrollbar. i just couldn't live with the static one in ctk
+import tkinter as tk
 import json
 import os
-from tkextrafont import Font # Import the library to load fonts dynamically
-from pathlib import Path
+import pyglet
+from datetime import datetime
 
 # Set appearance
 ctk.set_appearance_mode("dark")
@@ -15,26 +15,76 @@ ctk.set_default_color_theme("blue")
 # ------------------------------------------------------------------
 
 # 1. Specify the path to the font file
-font_path = 'font\Inter-4.1\InterVariable.ttf'
+font_path = 'font/Inter-4.1/Inter-ExtraBold.ttf'
 
-# 2. Define a name for the font that Tkinter will use internally
-font_var_name = "Inter_Dynamic" 
+# 2. Check if font file exists and load it
+if os.path.exists(font_path):
+    try:
+        
+        pyglet.font.add_file(font_path)
+        font_family_variable = "Inter"
+        print(f"Successfully loaded custom font: {font_family_variable}")
+    except Exception as e:
+        print(f"Could not load custom font. Error: {e}")
+        font_family_variable = "Arial"
+else:
+    print(f"Font file not found at {font_path}. Using Arial.")
+    font_family_variable = "Arial"
 
-# 3. Try to load the font dynamically
-try:
-    # Font is loaded into memory without system installation
-    Font(file=str(font_path), family=font_var_name)
+
+## Dynamic Scrollable Frame Class
+class DynamicScrollableFrame:
+    """A frame with a dynamic scrollbar that only appears when needed."""
+    def __init__(self, parent, orientation="vertical", bg_color="#1e1e2e"):
+        self.parent = parent
+        self.orientation = orientation
+        
+        # Create canvas
+        self.canvas = tk.Canvas(parent, bg=bg_color, highlightthickness=0)
+        
+        # Create scrollbar
+        self.scrollbar = ctk.CTkScrollbar(
+            parent,
+            orientation=orientation,
+            command=self.canvas.yview if orientation == "vertical" else self.canvas.xview
+        )
+        
+        if orientation == "vertical":
+            self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        else:
+            self.canvas.configure(xscrollcommand=self.scrollbar.set)
+        
+        # Create inner frame
+        self.inner_frame = ctk.CTkFrame(self.canvas, fg_color="transparent")
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.inner_frame, anchor="nw")
+        
+        # Bind to update scrollbar
+        self.inner_frame.bind("<Configure>", self.update_scrollbar)
+        
+    def pack(self, **kwargs):
+        """Pack the canvas."""
+        self.canvas.pack(**kwargs)
     
-    # If successful, this is the name we use for our variable
-    font_family_variable = font_var_name 
-    print(f"✅ Successfully loaded custom font: {font_family_variable}")
-
-except Exception as e:
-    print(f"⚠️ Could not load custom font from {font_path}. Falling back to Helvetica.")
-    print(f"Error details: {e}")
-    # Fallback to a common system font if loading fails
-    font_family_variable = "Helvetica"
-
+    def update_scrollbar(self, event=None):
+        """Show/hide scrollbar based on content size."""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        
+        if self.orientation == "vertical":
+            canvas_height = self.canvas.winfo_height()
+            content_height = self.inner_frame.winfo_reqheight()
+            
+            if content_height > canvas_height:
+                self.scrollbar.pack(side="right", fill="y", before=self.canvas)
+            else:
+                self.scrollbar.pack_forget()
+        else:
+            canvas_width = self.canvas.winfo_width()
+            content_width = self.inner_frame.winfo_reqwidth()
+            
+            if content_width > canvas_width:
+                self.scrollbar.pack(side="bottom", fill="x", before=self.canvas)
+            else:
+                self.scrollbar.pack_forget()
 
 
 ## Button Factory Class
@@ -83,22 +133,23 @@ class TaskBoard:
             self.create_board("My First Board")
         
         self.update_board_dropdown()
+        self.render_board()
     
     # --- UI Setup ---
     
     def setup_ui(self):
-        top_frame = ctk.CTkFrame(self.root, height=60, corner_radius=0)
-        top_frame.pack(fill="x", side="top")
+        self.top_frame = ctk.CTkFrame(self.root, height=60, corner_radius=0)
+        self.top_frame.pack(fill="x", side="top")
         
         title_label = ctk.CTkLabel(
-            top_frame, 
+            self.top_frame, 
             text="📋 TaskFlow",
             font=(self.font_family, 20, "bold")
         )
         title_label.pack(side="left", padx=20, pady=10)
         
         board_label = ctk.CTkLabel(
-            top_frame,
+            self.top_frame,
             text="Board:",
             font=(self.font_family, 12)
         )
@@ -106,23 +157,31 @@ class TaskBoard:
         
         self.board_var = ctk.StringVar(value="No boards")
         self.board_dropdown = ctk.CTkComboBox(
-            top_frame,
+            self.top_frame,
             variable=self.board_var,
-            values=["No boards"], # Default values
+            values=["No boards"],
             width=200,
             state="readonly",
-            command=self.board_selected # Add command to update current board on selection
+            command=self.board_selected
         )
         self.board_dropdown.pack(side="left", padx=5, pady=10)
 
+        self.board_name_label = ctk.CTkLabel(
+            self.top_frame,
+            text="",
+            font=(self.font_family, 14, "bold")
+        )
+        self.board_name_label.pack(side="left", padx=10, pady=10)
+        self.board_name_label.bind("<Double-Button-1>", self.start_edit_board_name)
+
         # Create the Button Factory instance
-        button_factory = CTkButtonFactory(top_frame, self.font_family)
+        button_factory = CTkButtonFactory(self.top_frame, self.font_family)
 
         # 1. Delete Board button using the factory
         delete_board_btn = button_factory.create_button(
             text="- Delete Board",
             command=self.delete_board_dialog,
-            fg_color="#f38ba8", # Custom color for delete
+            fg_color="#f38ba8",
             hover_color="#d16d87"
         )
         delete_board_btn.pack(side="left", padx=5, pady=10)
@@ -131,62 +190,69 @@ class TaskBoard:
         new_board_btn = button_factory.create_button(
             text="+ New Board",
             command=self.create_board_dialog
-            # Uses default colors
         )
         new_board_btn.pack(side="left", padx=5, pady=10)
 
         # 3. New List button using the factory
         new_list_btn = button_factory.create_button(
             text="+ New List",
-            command=lambda: print("New List clicked") # Placeholder command
+            command=self.create_list_dialog
         )
         new_list_btn.pack(side="left", padx=5, pady=10)
 
-        # Main content area
+        # Main content area with dynamic horizontal scrollbar
         main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Create canvas for horizontal scrolling
-        self.canvas = tk.Canvas(main_frame, bg="#1e1e2e", highlightthickness=0)
-        self.canvas.pack(side="top", fill="both", expand=True)
-
-        # Horizontal scrollbar (hidden by default)
-        self.h_scrollbar = ctk.CTkScrollbar(
-            main_frame,
-            orientation="horizontal",
-            command=self.canvas.xview
-        )
-        self.canvas.configure(xscrollcommand=self.h_scrollbar.set)
-
-        # Frame inside canvas to hold lists
-        self.lists_container = ctk.CTkFrame(self.canvas, fg_color="transparent")
-        self.canvas_window = self.canvas.create_window(
-            (0, 0),
-            window=self.lists_container,
-            anchor="nw"
-        )
-
-        # Bind to update scrollbar visibility
-        self.lists_container.bind("<Configure>", self.update_scrollbar)
+        # Use DynamicScrollableFrame for horizontal scrolling
+        self.main_scrollable = DynamicScrollableFrame(main_frame, orientation="horizontal")
+        self.main_scrollable.pack(side="top", fill="both", expand=True)
+        
+        # Store reference to the lists container
+        self.lists_container = self.main_scrollable.inner_frame
     
     def board_selected(self, choice):
         """Updates the current_board when a selection is made in the dropdown."""
         if choice in self.boards:
             self.current_board = choice
-        
-    def update_scrollbar(self, event=None):
-        # Update scroll region
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        
-        # Show/hide scrollbar based on content width
-        canvas_width = self.canvas.winfo_width()
-        content_width = self.lists_container.winfo_reqwidth()
-        
-        if content_width > canvas_width:
-            self.h_scrollbar.pack(side="bottom", fill="x", before=self.canvas)
-        else:
-            self.h_scrollbar.pack_forget()
-        
+            self.board_name_label.configure(text=choice)
+            self.save_data()
+            self.render_board()
+    
+    def start_edit_board_name(self, event):
+        if not self.current_board or self.current_board == "No boards":
+            return
+        old_name = self.current_board
+        self.board_name_label.destroy()
+        entry = ctk.CTkEntry(self.top_frame, width=200, font=(self.font_family, 14, "bold"))
+        entry.insert(0, old_name)
+        entry.pack(side="left", padx=10, pady=10)
+        entry.focus()
+        def save(event=None):
+            new_name = entry.get().strip()
+            entry.destroy()
+            renamed = False
+            if new_name and new_name != old_name and new_name not in self.boards:
+                board_data = self.boards.pop(old_name)
+                self.boards[new_name] = board_data
+                self.current_board = new_name
+                self.board_var.set(new_name)
+                renamed = True
+                self.save_data()
+            # Recreate label
+            text = self.current_board
+            self.board_name_label = ctk.CTkLabel(
+                self.top_frame,
+                text=text,
+                font=(self.font_family, 14, "bold")
+            )
+            self.board_name_label.pack(side="left", padx=10, pady=10)
+            self.board_name_label.bind("<Double-Button-1>", self.start_edit_board_name)
+            if renamed:
+                self.board_dropdown.configure(values=list(self.boards.keys()))
+            self.render_board()
+        entry.bind("<Return>", save)
+        entry.bind("<FocusOut>", save)
     
     # --- Data Management ---
     
@@ -219,6 +285,7 @@ class TaskBoard:
         self.current_board = name
         self.save_data()
         self.update_board_dropdown()
+        self.render_board()
     
     def create_board_dialog(self):
         dialog = ctk.CTkInputDialog(
@@ -236,23 +303,22 @@ class TaskBoard:
         if board_names:
             self.board_dropdown.configure(values=board_names)
             
-            # Ensure the current_board is valid, or default to the first board
             if self.current_board is None or self.current_board not in board_names:
                  self.current_board = board_names[0]
                  
             self.board_var.set(self.current_board)
+            self.board_name_label.configure(text=self.current_board)
         else:
             self.board_dropdown.configure(values=["No boards"])
             self.board_var.set("No boards")
-            self.current_board = None # Explicitly set to None when no boards exist
+            self.current_board = None
+            self.board_name_label.configure(text="")
     
     def delete_board_dialog(self):
-        # Check to ensure a valid board is selected before opening the dialog
         if not self.current_board or self.current_board == "No boards":
             print("Cannot delete: No board is currently selected.")
             return
         
-        # The dialog now correctly uses the value of self.current_board
         dialog = ctk.CTkInputDialog(
             text=f"Type '{self.current_board}' to confirm deletion of the board:",
             title="Delete Board"
@@ -260,19 +326,209 @@ class TaskBoard:
         confirmation = dialog.get_input()
         
         if confirmation == self.current_board:
-            # 1. Store the board being deleted
             deleted_board = self.current_board
             
-            # 2. Delete the board
             del self.boards[deleted_board]
             
-            # 3. Determine the next current board
             remaining_boards = list(self.boards.keys())
             self.current_board = remaining_boards[0] if remaining_boards else None
             
-            # 4. Save and update UI
             self.save_data()
             self.update_board_dropdown()
+            self.render_board()
+    
+    def create_list(self, name):
+        if not self.current_board or self.current_board == "No boards":
+            return
+        
+        board = self.boards[self.current_board]
+        
+        if name in board["lists"]:
+            return
+        
+        board["lists"][name] = {"cards": []}
+        self.save_data()
+        self.render_board()
+    
+    def create_list_dialog(self):
+        if not self.current_board or self.current_board == "No boards":
+            print("Cannot create list: No board is currently selected.")
+            return
+        
+        dialog = ctk.CTkInputDialog(
+            text="Enter list name:",
+            title="New List"
+        )
+        name = dialog.get_input()
+        
+        if name:
+            self.create_list(name)
+    
+
+    def start_edit_list_name(self, label, list_name, header):
+        current = label.cget("text")
+        label.destroy()
+        entry = ctk.CTkEntry(header, font=(self.font_family, 14, "bold"))
+        entry.insert(0, current)
+        entry.pack(side="left", padx=10, pady=8)
+        entry.focus()
+        def save(event=None):
+            new_name = entry.get().strip()
+            entry.destroy()
+            board = self.boards[self.current_board]
+            renamed = False
+            if new_name and new_name != list_name and new_name not in board["lists"]:
+                list_data = board["lists"].pop(list_name)
+                board["lists"][new_name] = list_data
+                renamed = True
+                self.save_data()
+            self.render_board()
+        entry.bind("<Return>", save)
+        entry.bind("<FocusOut>", save)
+
+    def render_list(self, list_name, list_data):
+        list_frame = ctk.CTkFrame(
+            self.lists_container,
+            width=280,
+            corner_radius=10,
+            fg_color="#2b2d3a"
+        )
+        list_frame.pack(side="left", padx=10, pady=10, fill="both", anchor="n")
+        
+        # List header
+        header = ctk.CTkFrame(list_frame, fg_color="#3d3f4f", corner_radius=8, height=40)
+        header.pack(fill="x", padx=5, pady=5)
+        header.pack_propagate(False)
+
+        list_label = ctk.CTkLabel(
+            header,
+            text=list_name,
+            font=(self.font_family, 14, "bold")
+        )
+        list_label.pack(side="left", padx=10, pady=8)
+        list_label.bind("<Double-Button-1>", lambda event: self.start_edit_list_name(list_label, list_name, header))
+
+        # Delete list button
+        ctk.CTkButton(
+            header,
+            text="×",
+            width=30,
+            height=30,
+            font=(self.font_family, 20),
+            fg_color="#f38ba8",
+            hover_color="#d16d87",
+            command=lambda: self.delete_list(list_name)
+        ).pack(side="right", padx=5)
+
+        # Add card button at bottom - PACK FIRST
+        ctk.CTkButton(
+            list_frame,
+            text="+ Add Card",
+            fg_color="#313244",
+            hover_color="#45475a",
+            command=lambda: self.create_card_dialog(list_name)
+        ).pack(side="bottom", fill="x", padx=5, pady=5)
+
+        # Cards container with dynamic vertical scrollbar
+        cards_scrollable = DynamicScrollableFrame(list_frame, orientation="vertical", bg_color="#2b2d3a")
+        cards_scrollable.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Render each card
+        for idx, card in enumerate(list_data["cards"]):
+            self.render_card(cards_scrollable.inner_frame, list_name, card, idx)
+    
+
+    def render_board(self):
+        # Clear existing lists
+        for widget in self.lists_container.winfo_children():
+            widget.destroy()
+        
+        if not self.current_board or self.current_board == "No boards":
+            return
+        
+        board = self.boards[self.current_board]
+        
+        for list_name, list_data in board["lists"].items():
+            self.render_list(list_name, list_data)
+    
+
+    def delete_list(self, list_name):
+        dialog = ctk.CTkInputDialog(
+            text=f"Type '{list_name}' to confirm deletion:",
+            title="Delete List"
+        )
+        confirmation = dialog.get_input()
+        
+        if confirmation == list_name:
+            board = self.boards[self.current_board]
+            del board["lists"][list_name]
+            self.save_data()
+            self.render_board()
+    
+    def create_card(self, list_name, title):
+        board = self.boards[self.current_board]
+        card = {
+            "title": title,
+            "created": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        board["lists"][list_name]["cards"].append(card)
+        self.save_data()
+        self.render_board()
+    
+    def create_card_dialog(self, list_name):
+        dialog = ctk.CTkInputDialog(
+            text="Enter card title:",
+            title="New Card"
+        )
+        title = dialog.get_input()
+        
+        if title:
+            self.create_card(list_name, title)
+    
+    def start_edit_card_title(self, title_label, list_name, idx, card_frame):
+        current = title_label.cget("text")
+        title_label.destroy()
+        entry = ctk.CTkEntry(card_frame, font=(self.font_family, 11), width=260)
+        entry.insert(0, current)
+        entry.pack(fill="x", padx=10, pady=(10, 5))
+        entry.focus()
+        def save(event=None):
+            new_title = entry.get().strip()
+            entry.destroy()
+            if new_title:
+                self.boards[self.current_board]["lists"][list_name]["cards"][idx]["title"] = new_title
+                self.save_data()
+            self.render_board()
+        entry.bind("<Return>", save)
+        entry.bind("<FocusOut>", save)
+
+    def render_card(self, parent, list_name, card, idx):
+        card_frame = ctk.CTkFrame(
+            parent,
+            corner_radius=8,
+            fg_color="#313244"
+        )
+        card_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Card title
+        title_label = ctk.CTkLabel(
+            card_frame,
+            text=card["title"],
+            font=(self.font_family, 11),
+            wraplength=240,
+            anchor="w"
+        )
+        title_label.pack(fill="x", padx=10, pady=(10, 5))
+        title_label.bind("<Double-Button-1>", lambda e: self.start_edit_card_title(title_label, list_name, idx, card_frame))
+        
+        # Card date
+        ctk.CTkLabel(
+            card_frame,
+            text=card["created"],
+            font=(self.font_family, 9),
+            text_color="#6c7086",
+            anchor="w"
+        ).pack(fill="x", padx=10, pady=(0, 10))
 
 
 if __name__ == "__main__":
