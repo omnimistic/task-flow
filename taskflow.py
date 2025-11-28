@@ -10,14 +10,10 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
-# ------------------------------------------------------------------
-# DYNAMIC FONT LOADING LOGIC
-# ------------------------------------------------------------------
 
-# 1. Specify the path to the font file
 font_path = 'font/Inter-4.1/Inter-ExtraBold.ttf'
 
-# 2. Check if font file exists and load it
+
 if os.path.exists(font_path):
     try:
         
@@ -165,14 +161,7 @@ class TaskBoard:
             command=self.board_selected
         )
         self.board_dropdown.pack(side="left", padx=5, pady=10)
-
-        self.board_name_label = ctk.CTkLabel(
-            self.top_frame,
-            text="",
-            font=(self.font_family, 14, "bold")
-        )
-        self.board_name_label.pack(side="left", padx=10, pady=10)
-        self.board_name_label.bind("<Double-Button-1>", self.start_edit_board_name)
+        self.board_dropdown.bind("<Double-Button-1>", self.rename_board_dialog)
 
         # Create the Button Factory instance
         button_factory = CTkButtonFactory(self.top_frame, self.font_family)
@@ -215,44 +204,24 @@ class TaskBoard:
         """Updates the current_board when a selection is made in the dropdown."""
         if choice in self.boards:
             self.current_board = choice
-            self.board_name_label.configure(text=choice)
             self.save_data()
             self.render_board()
     
-    def start_edit_board_name(self, event):
+    def rename_board_dialog(self, event=None):
         if not self.current_board or self.current_board == "No boards":
             return
-        old_name = self.current_board
-        self.board_name_label.destroy()
-        entry = ctk.CTkEntry(self.top_frame, width=200, font=(self.font_family, 14, "bold"))
-        entry.insert(0, old_name)
-        entry.pack(side="left", padx=10, pady=10)
-        entry.focus()
-        def save(event=None):
-            new_name = entry.get().strip()
-            entry.destroy()
-            renamed = False
-            if new_name and new_name != old_name and new_name not in self.boards:
-                board_data = self.boards.pop(old_name)
-                self.boards[new_name] = board_data
-                self.current_board = new_name
-                self.board_var.set(new_name)
-                renamed = True
-                self.save_data()
-            # Recreate label
-            text = self.current_board
-            self.board_name_label = ctk.CTkLabel(
-                self.top_frame,
-                text=text,
-                font=(self.font_family, 14, "bold")
-            )
-            self.board_name_label.pack(side="left", padx=10, pady=10)
-            self.board_name_label.bind("<Double-Button-1>", self.start_edit_board_name)
-            if renamed:
-                self.board_dropdown.configure(values=list(self.boards.keys()))
+        dialog = ctk.CTkInputDialog(
+            text="Enter new board name:",
+            title="Rename Board"
+        )
+        new_name = dialog.get_input()
+        if new_name and new_name != self.current_board and new_name not in self.boards:
+            board_data = self.boards.pop(self.current_board)
+            self.boards[new_name] = board_data
+            self.current_board = new_name
+            self.save_data()
+            self.update_board_dropdown()
             self.render_board()
-        entry.bind("<Return>", save)
-        entry.bind("<FocusOut>", save)
     
     # --- Data Management ---
     
@@ -307,12 +276,10 @@ class TaskBoard:
                  self.current_board = board_names[0]
                  
             self.board_var.set(self.current_board)
-            self.board_name_label.configure(text=self.current_board)
         else:
             self.board_dropdown.configure(values=["No boards"])
             self.board_var.set("No boards")
             self.current_board = None
-            self.board_name_label.configure(text="")
     
     def delete_board_dialog(self):
         if not self.current_board or self.current_board == "No boards":
