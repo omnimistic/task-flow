@@ -464,12 +464,25 @@ class TaskBoard:
         if title:
             self.create_card(list_name, title)
     
-    def start_edit_card_title(self, title_label, list_name, idx, card_frame):
+    def delete_card_dialog(self, list_name, idx):
+        dialog = ctk.CTkInputDialog(
+            text="Type 'confirm' to confirm deletion of the card:",
+            title="Delete Card"
+        )
+        confirmation = dialog.get_input()
+        
+        if confirmation == "confirm":
+            board = self.boards[self.current_board]
+            del board["lists"][list_name]["cards"][idx]
+            self.save_data()
+            self.render_board()
+
+    def start_edit_card_title(self, title_label, list_name, idx, card_top):
         current = title_label.cget("text")
         title_label.destroy()
-        entry = ctk.CTkEntry(card_frame, font=(self.font_family, 14), width=260)
+        entry = ctk.CTkEntry(card_top, font=(self.font_family, 14), width=260)
         entry.insert(0, current)
-        entry.pack(fill="x", padx=10, pady=(10, 5))
+        entry.pack(side="left", fill="both", expand=True, padx=(5, 5), pady=2)
         entry.focus()
         def save(event=None):
             new_title = entry.get().strip()
@@ -491,17 +504,34 @@ class TaskBoard:
         card_frame.pack(fill="x", padx=5, pady=3)
         card_frame.pack_propagate(False)
         
+        # Card top frame for title and delete button
+        card_top = ctk.CTkFrame(card_frame, fg_color="transparent", height=30)
+        card_top.pack(fill="x", padx=10, pady=(10, 0))
+        card_top.pack_propagate(False)
+        
         # Card title
         title_label = ctk.CTkLabel(
-            card_frame,
+            card_top,
             text=card["title"],
             font=(self.font_family, 14),
-            wraplength=260,
+            wraplength=240,
             anchor="w",
             justify="left"
         )
-        title_label.pack(fill="x", padx=12, pady=(12, 5))
-        title_label.bind("<Double-Button-1>", lambda e: self.start_edit_card_title(title_label, list_name, idx, card_frame))
+        title_label.pack(side="left", fill="both", expand=True, padx=(5, 5), pady=2)
+        title_label.bind("<Double-Button-1>", lambda e: self.start_edit_card_title(title_label, list_name, idx, card_top))
+        
+        # Delete card button
+        ctk.CTkButton(
+            card_top,
+            text="×",
+            width=25,
+            height=25,
+            font=(self.font_family, 16),
+            fg_color="#f38ba8",
+            hover_color="#d16d87",
+            command=lambda: self.delete_card_dialog(list_name, idx)
+        ).pack(side="right", padx=5, pady=2)
         
         # Card date
         ctk.CTkLabel(
@@ -510,7 +540,7 @@ class TaskBoard:
             font=(self.font_family, 12),
             text_color="#6c7086",
             anchor="w"
-        ).pack(fill="x", padx=12, pady=(0, 12))
+        ).pack(fill="x", padx=10, pady=(5, 10))
 
 
 if __name__ == "__main__":
