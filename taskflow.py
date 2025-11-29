@@ -120,6 +120,23 @@ class TaskBoard:
         self.boards = {}
         self.current_board = None
         
+        # Drag and drop
+        self.dragged_item = None
+        self.drag_data = None
+        self.offset_x = None
+        self.offset_y = None
+        self.drag_start_x_root = None
+        self.drag_start_y_root = None
+        
+        # Constants for drag drop
+        self.HEADER_HEIGHT = 50
+        self.CARD_HEIGHT = 80
+        self.LIST_WIDTH = 300
+        
+        # Store references to list frames for partial updates
+        self.list_frames = {}
+        self.list_scrollables = {}
+        
         self.load_data()
         
         self.setup_ui()
@@ -129,6 +146,76 @@ class TaskBoard:
         
         self.update_board_dropdown()
         self.render_board()
+    
+    def create_card_ghost(self, card):
+        ghost = ctk.CTkFrame(
+            self.root,
+            corner_radius=8,
+            fg_color="#45475a",
+            height=70,
+            width=260
+        )
+        ghost.pack_propagate(False)
+        
+        # Card top frame for title (no delete in ghost)
+        card_top = ctk.CTkFrame(ghost, fg_color="transparent", height=30)
+        card_top.pack(fill="x", padx=10, pady=(10, 0))
+        card_top.pack_propagate(False)
+        
+        # Card title
+        title_label = ctk.CTkLabel(
+            card_top,
+            text=card["title"],
+            font=(self.font_family, 14),
+            wraplength=240,
+            anchor="w",
+            justify="left"
+        )
+        title_label.pack(side="left", fill="both", expand=True, padx=(5, 5), pady=2)
+        
+        # Card date
+        date_label = ctk.CTkLabel(
+            ghost,
+            text=card["created"],
+            font=(self.font_family, 12),
+            text_color="#6c7086",
+            anchor="w"
+        )
+        date_label.pack(fill="x", padx=10, pady=(5, 10))
+        
+        return ghost
+    
+    def create_list_ghost(self, list_name, list_data):
+        num_cards = len(list_data["cards"])
+        ghost = ctk.CTkFrame(
+            self.root,
+            width=280,
+            corner_radius=10,
+            fg_color="#45475a",
+            height=80
+        )
+        ghost.pack_propagate(False)
+        
+        # Header
+        header = ctk.CTkFrame(ghost, fg_color="#5a5c6e", corner_radius=8, height=40)
+        header.pack(fill="x", padx=5, pady=5)
+        header.pack_propagate(False)
+        
+        ctk.CTkLabel(
+            header,
+            text=list_name,
+            font=(self.font_family, 14, "bold")
+        ).pack(side="left", padx=10, pady=8)
+        
+        # Cards count
+        ctk.CTkLabel(
+            ghost,
+            text=f"{num_cards} cards",
+            font=(self.font_family, 10),
+            text_color="#6c7086"
+        ).pack(pady=5)
+        
+        return ghost
     
     # --- UI Setup ---
     
@@ -205,6 +292,159 @@ class TaskBoard:
         
         # Store reference to the lists container
         self.lists_container = self.main_scrollable.inner_frame
+        
+        # Bind drag events to root
+        self.root.bind("<B1-Motion>", self.on_drag_motion)
+        self.root.bind("<ButtonRelease-1>", self.on_drop)
+    
+    def start_drag(self, event, widget, list_name, idx=None):
+        if self.dragged_item:
+            return
+        
+        drag_type = 'card' if idx is not None else 'list'
+        self.drag_data = {
+            'type': drag_type,
+            'list_name': list_name,
+            'idx': idx
+        }
+        self.drag_start_x_root = event.x_root
+        self.drag_start_y_root = event.y_root
+        
+        # Get absolute position of widget
+        abs_x = widget.winfo_rootx()
+        abs_y = widget.winfo_rooty()
+        
+        # Calculate offset BEFORE forgetting the widget
+        # This is the mouse position relative to widget's top-left corner
+        self.offset_x = event.x_root - abs_x
+        self.offset_y = event.y_root - abs_y
+        
+        # Forget current packing
+        widget.pack_forget()
+        
+        board = self.boards[self.current_board]
+        self.dragged_item = None
+        
+        if drag_type == 'card':
+            card = board['lists'][list_name]['cards'].pop(idx)
+            self.drag_data['card'] = card
+            self.dragged_item = self.create_card_ghost(card)
+        else:
+            list_data = board['lists'].pop(list_name)
+            self.drag_data['list_data'] = list_data
+            self.dragged_item = self.create_list_ghost(list_name, list_data)
+        
+        # Place ghost at exact widget position
+        self.dragged_item.place(in_=self.root, x=abs_x, y=abs_y)
+        self.dragged_item.lift()
+    
+    def on_drag_motion(self, event):
+        if self.dragged_item:
+            # Position ghost so mouse is at same relative position as when drag started
+            x = event.x_root - self.offset_x
+            y = event.y_root - self.offset_y
+            self.dragged_item.place(x=x, y=y)
+    
+    def on_drop(self, event):
+        if not self.dragged_item:
+            return
+        
+        self.dragged_item.place_forget()
+        self.dragged_item.destroy()
+        
+        dx = abs(event.x_root - self.drag_start_x_root)
+        dy = abs(event.y_root - self.drag_start_y_root)
+        
+        if dx < 10 and dy < 10:
+            # Not dragged far enough, put back
+            board = self.boards[self.current_board]
+            if self.drag_data['type'] == 'card':
+                source_list = self.drag_data['list_name']
+                idx = self.drag_data['idx']
+                board['lists'][source_list]['cards'].insert(idx, self.drag_data['card'])
+            else:
+                source_list = self.drag_data['list_name']
+                board['lists'][source_list] = self.drag_data['list_data']
+            self.save_data()
+            
+            # Only re-render affected list
+            if self.drag_data['type'] == 'card':
+                self.render_list_cards(source_list)
+            else:
+                self.render_board()
+        else:
+            # Process drop
+            drag_type = self.drag_data['type']
+            board = self.boards[self.current_board]
+            mouse_x = event.x_root
+            mouse_y = event.y_root
+            
+            if drag_type == 'card':
+                source_list = self.drag_data['list_name']
+                card = self.drag_data['card']
+                
+                target_list = None
+                insertion_idx = 0
+                
+                for lf in self.lists_container.winfo_children():
+                    if lf.winfo_ismapped():
+                        lx = lf.winfo_rootx()
+                        ly = lf.winfo_rooty()
+                        lw = lf.winfo_width()
+                        lh = lf.winfo_height()
+                        if lx <= mouse_x <= lx + lw and ly <= mouse_y <= ly + lh:
+                            target_list = lf.list_name
+                            cards_start_y = ly + self.HEADER_HEIGHT
+                            rel_y = max(0, mouse_y - cards_start_y)
+                            insertion_idx = min(len(board['lists'][target_list]['cards']), int(rel_y / self.CARD_HEIGHT))
+                            break
+                
+                if target_list:
+                    board['lists'][target_list]['cards'].insert(insertion_idx, card)
+                    self.save_data()
+                    
+                    # Only re-render the two affected lists
+                    if source_list == target_list:
+                        self.render_list_cards(source_list)
+                    else:
+                        self.render_list_cards(source_list)
+                        self.render_list_cards(target_list)
+                else:
+                    # Put back to source
+                    board['lists'][source_list]['cards'].insert(self.drag_data['idx'], card)
+                    self.save_data()
+                    self.render_list_cards(source_list)
+                
+            elif drag_type == 'list':
+                source_list = self.drag_data['list_name']
+                list_data = self.drag_data['list_data']
+                
+                container_x = self.lists_container.winfo_rootx()
+                rel_x = max(0, mouse_x - container_x)
+                target_idx = int(rel_x / self.LIST_WIDTH)
+                num_lists = len(board['lists'])
+                if target_idx > num_lists:
+                    target_idx = num_lists
+                
+                ordered_lists = list(board['lists'].keys())
+                ordered_lists.insert(target_idx, source_list)
+                
+                new_lists = {}
+                for ln in ordered_lists:
+                    if ln == source_list:
+                        new_lists[ln] = list_data
+                    else:
+                        new_lists[ln] = board['lists'][ln]
+                board['lists'] = new_lists
+                self.save_data()
+                self.render_board()
+        
+        self.dragged_item = None
+        self.drag_data = None
+        self.offset_x = None
+        self.offset_y = None
+        self.drag_start_x_root = None
+        self.drag_start_y_root = None
     
     def board_selected(self, choice):
         """Updates the current_board when a selection is made in the dropdown."""
@@ -365,6 +605,23 @@ class TaskBoard:
         entry.bind("<Return>", save)
         entry.bind("<FocusOut>", save)
 
+    def render_list_cards(self, list_name):
+        """Re-render only the cards in a specific list"""
+        if list_name not in self.list_scrollables:
+            return
+        
+        # Clear existing cards
+        scrollable = self.list_scrollables[list_name]
+        for widget in scrollable.inner_frame.winfo_children():
+            widget.destroy()
+        
+        # Re-render cards
+        board = self.boards[self.current_board]
+        if list_name in board["lists"]:
+            list_data = board["lists"][list_name]
+            for idx, card in enumerate(list_data["cards"]):
+                self.render_card(scrollable.inner_frame, list_name, card, idx)
+
     def render_list(self, list_name, list_data):
         list_frame = ctk.CTkFrame(
             self.lists_container,
@@ -373,6 +630,10 @@ class TaskBoard:
             fg_color="#2b2d3a"
         )
         list_frame.pack(side="left", padx=10, pady=10, fill="both", anchor="n")
+        list_frame.list_name = list_name  # For drop detection
+        
+        # Store reference
+        self.list_frames[list_name] = list_frame
         
         # List header
         header = ctk.CTkFrame(list_frame, fg_color="#3d3f4f", corner_radius=8, height=40)
@@ -386,6 +647,9 @@ class TaskBoard:
         )
         list_label.pack(side="left", padx=10, pady=8)
         list_label.bind("<Double-Button-1>", lambda event: self.start_edit_list_name(list_label, list_name, header))
+
+        # Bind drag for list on header
+        header.bind("<Button-1>", lambda e, ln=list_name: self.start_drag(e, list_frame, ln))
 
         # Delete list button
         ctk.CTkButton(
@@ -411,6 +675,9 @@ class TaskBoard:
         # Cards container with dynamic vertical scrollbar
         cards_scrollable = DynamicScrollableFrame(list_frame, orientation="vertical", bg_color="#2b2d3a")
         cards_scrollable.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Store reference
+        self.list_scrollables[list_name] = cards_scrollable
 
         # Render each card
         for idx, card in enumerate(list_data["cards"]):
@@ -421,6 +688,10 @@ class TaskBoard:
         # Clear existing lists
         for widget in self.lists_container.winfo_children():
             widget.destroy()
+        
+        # Clear references
+        self.list_frames = {}
+        self.list_scrollables = {}
         
         if not self.current_board or self.current_board == "No boards":
             return
@@ -452,7 +723,8 @@ class TaskBoard:
         }
         board["lists"][list_name]["cards"].append(card)
         self.save_data()
-        self.render_board()
+        # Only re-render this list's cards
+        self.render_list_cards(list_name)
     
     def create_card_dialog(self, list_name):
         dialog = ctk.CTkInputDialog(
@@ -475,7 +747,8 @@ class TaskBoard:
             board = self.boards[self.current_board]
             del board["lists"][list_name]["cards"][idx]
             self.save_data()
-            self.render_board()
+            # Only re-render this list's cards
+            self.render_list_cards(list_name)
 
     def start_edit_card_title(self, title_label, list_name, idx, card_top):
         current = title_label.cget("text")
@@ -490,7 +763,8 @@ class TaskBoard:
             if new_title:
                 self.boards[self.current_board]["lists"][list_name]["cards"][idx]["title"] = new_title
                 self.save_data()
-            self.render_board()
+            # Only re-render this list's cards
+            self.render_list_cards(list_name)
         entry.bind("<Return>", save)
         entry.bind("<FocusOut>", save)
 
@@ -533,17 +807,36 @@ class TaskBoard:
             command=lambda: self.delete_card_dialog(list_name, idx)
         ).pack(side="right", padx=5, pady=2)
         
+        # Bottom frame for date and drag handle
+        card_bottom = ctk.CTkFrame(card_frame, fg_color="transparent")
+        card_bottom.pack(fill="x", padx=10, pady=(5, 10))
+        
         # Card date
         ctk.CTkLabel(
-            card_frame,
+            card_bottom,
             text=card["created"],
             font=(self.font_family, 12),
             text_color="#6c7086",
             anchor="w"
-        ).pack(fill="x", padx=10, pady=(5, 10))
+        ).pack(side="left")
+        
+        # Drag handle
+        drag_handle = ctk.CTkLabel(
+            card_bottom,
+            text="///",
+            font=(self.font_family, 12, "bold"),
+            text_color="#6c7086",
+            cursor="hand2"
+        )
+        drag_handle.pack(side="right", padx=5)
+        
+        # Bind drag ONLY to the drag handle
+        drag_handle.bind("<Button-1>", lambda e, ln=list_name, i=idx: self.start_drag(e, card_frame, ln, i))
 
+# Run the application
 
 if __name__ == "__main__":
     root = ctk.CTk()
     app = TaskBoard(root)
     root.mainloop()
+                
