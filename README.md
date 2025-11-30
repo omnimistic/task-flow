@@ -45,7 +45,7 @@ The app will launch a desktop window. Ensure the `font` directory is present if 
 4. Drag items to reorder or move between lists.
 5. Data saves automatically to local JSON files in the app directory.
 
-For detailed controls, refer to the in-app tooltips.
+For detailed controls, refer to the in-app tooltips. (to be added)
 
 ## Screenshots
 
