@@ -128,6 +128,10 @@ class TaskBoard:
         self.drag_start_x_root = None
         self.drag_start_y_root = None
         
+        # Permanent offset adjustment - HARDCODED VALUES
+        self.ghost_offset_x = -315
+        self.ghost_offset_y = -109
+        
         # Constants for drag drop
         self.HEADER_HEIGHT = 50
         self.CARD_HEIGHT = 80
@@ -296,6 +300,9 @@ class TaskBoard:
         # Bind drag events to root
         self.root.bind("<B1-Motion>", self.on_drag_motion)
         self.root.bind("<ButtonRelease-1>", self.on_drop)
+
+        # Bind keyboard for offset adjustment
+        self.root.bind("<KeyPress>", self.on_key_press)
     
     def start_drag(self, event, widget, list_name, idx=None):
         if self.dragged_item:
@@ -307,17 +314,21 @@ class TaskBoard:
             'list_name': list_name,
             'idx': idx
         }
-        self.drag_start_x_root = event.x_root
-        self.drag_start_y_root = event.y_root
+        
+        # Get ACTUAL mouse position on screen
+        actual_mouse_x = self.root.winfo_pointerx()
+        actual_mouse_y = self.root.winfo_pointery()
+        
+        self.drag_start_x_root = actual_mouse_x
+        self.drag_start_y_root = actual_mouse_y
         
         # Get absolute position of widget
         abs_x = widget.winfo_rootx()
         abs_y = widget.winfo_rooty()
         
-        # Calculate offset BEFORE forgetting the widget
-        # This is the mouse position relative to widget's top-left corner
-        self.offset_x = event.x_root - abs_x
-        self.offset_y = event.y_root - abs_y
+        # Calculate offset from ACTUAL mouse to widget's top-left
+        self.offset_x = actual_mouse_x - abs_x
+        self.offset_y = actual_mouse_y - abs_y
         
         # Forget current packing
         widget.pack_forget()
@@ -337,12 +348,20 @@ class TaskBoard:
         # Place ghost at exact widget position
         self.dragged_item.place(in_=self.root, x=abs_x, y=abs_y)
         self.dragged_item.lift()
-    
+
     def on_drag_motion(self, event):
         if self.dragged_item:
-            # Position ghost so mouse is at same relative position as when drag started
-            x = event.x_root - self.offset_x
-            y = event.y_root - self.offset_y
+            # Get ACTUAL mouse position
+            actual_mouse_x = self.root.winfo_pointerx()
+            actual_mouse_y = self.root.winfo_pointery()
+            
+            # Convert to root-relative coordinates
+            root_x = actual_mouse_x - self.root.winfo_rootx()
+            root_y = actual_mouse_y - self.root.winfo_rooty()
+            
+            # Position ghost
+            x = root_x - self.offset_x
+            y = root_y - self.offset_y
             self.dragged_item.place(x=x, y=y)
     
     def on_drop(self, event):
@@ -832,6 +851,31 @@ class TaskBoard:
         
         # Bind drag ONLY to the drag handle
         drag_handle.bind("<Button-1>", lambda e, ln=list_name, i=idx: self.start_drag(e, card_frame, ln, i))
+    
+    def on_key_press(self, event):
+        """Adjust ghost offset in real-time with arrow keys"""
+        if not self.dragged_item:
+            return
+        
+        step = 5  # pixels to adjust per key press
+        
+        if event.keysym == 'Up':
+            self.offset_y -= step
+        elif event.keysym == 'Down':
+            self.offset_y += step
+        elif event.keysym == 'Left':
+            self.offset_x -= step
+        elif event.keysym == 'Right':
+            self.offset_x += step
+        
+        # Immediately update ghost position
+        if self.dragged_item:
+            x = self.root.winfo_pointerx() - self.root.winfo_rootx() - self.offset_x
+            y = self.root.winfo_pointery() - self.root.winfo_rooty() - self.offset_y
+            self.dragged_item.place(x=x, y=y)
+            
+            # Print current offset values
+            print(f"Offset X: {self.offset_x}, Offset Y: {self.offset_y}")
 
 # Run the application
 
