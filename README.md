@@ -8,7 +8,7 @@ A free and open-source (FOSS) alternative to Trello that runs entirely on your l
 
 - Intuitive drag-and-drop interface for organizing tasks into boards and lists.
 - Local data storage using JSON for persistence without external dependencies.
-- Customizable dark theme with support for high-quality fonts.
+- Customizable dark theme with support for high-quality fonts. (planned)
 - Dynamic scrollable views for handling large boards.
 - Built with Python and CustomTkinter for cross-platform compatibility.
 
