@@ -315,20 +315,22 @@ class TaskBoard:
             'idx': idx
         }
         
-        # Get ACTUAL mouse position on screen
+        # Get ACTUAL mouse position on screen (BEFORE any changes)
         actual_mouse_x = self.root.winfo_pointerx()
         actual_mouse_y = self.root.winfo_pointery()
         
         self.drag_start_x_root = actual_mouse_x
         self.drag_start_y_root = actual_mouse_y
         
-        # Get absolute position of widget
+        # Get absolute position of widget BEFORE forgetting it
         abs_x = widget.winfo_rootx()
         abs_y = widget.winfo_rooty()
         
-        # Calculate offset from ACTUAL mouse to widget's top-left
+        # Calculate offset from ACTUAL mouse to widget's top-left (this stays constant)
         self.offset_x = actual_mouse_x - abs_x
         self.offset_y = actual_mouse_y - abs_y
+        
+        print(f"Initial offset - X: {self.offset_x}, Y: {self.offset_y}")  # Debug
         
         # Forget current packing
         widget.pack_forget()
@@ -345,23 +347,24 @@ class TaskBoard:
             self.drag_data['list_data'] = list_data
             self.dragged_item = self.create_list_ghost(list_name, list_data)
         
-        # Place ghost at exact widget position
-        self.dragged_item.place(in_=self.root, x=abs_x, y=abs_y)
+        # Place ghost at exact widget position (convert screen coords to root-relative)
+        ghost_x = abs_x - self.root.winfo_rootx()
+        ghost_y = abs_y - self.root.winfo_rooty()
+        
+        self.dragged_item.place(in_=self.root, x=ghost_x, y=ghost_y)
         self.dragged_item.lift()
 
     def on_drag_motion(self, event):
         if self.dragged_item:
-            # Get ACTUAL mouse position
+            # Get ACTUAL mouse position (screen coordinates)
             actual_mouse_x = self.root.winfo_pointerx()
             actual_mouse_y = self.root.winfo_pointery()
             
-            # Convert to root-relative coordinates
-            root_x = actual_mouse_x - self.root.winfo_rootx()
-            root_y = actual_mouse_y - self.root.winfo_rooty()
+            # Position ghost maintaining the SAME offset
+            # Convert to root-relative: screen_pos - root_screen_pos - offset
+            x = actual_mouse_x - self.root.winfo_rootx() - self.offset_x
+            y = actual_mouse_y - self.root.winfo_rooty() - self.offset_y
             
-            # Position ghost
-            x = root_x - self.offset_x
-            y = root_y - self.offset_y
             self.dragged_item.place(x=x, y=y)
     
     def on_drop(self, event):
