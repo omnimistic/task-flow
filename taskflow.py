@@ -127,6 +127,8 @@ class TaskBoard:
         self.offset_y = None
         self.drag_start_x_root = None
         self.drag_start_y_root = None
+
+        self.resize_data = None
         
         # Permanent offset adjustment - HARDCODED VALUES
         self.ghost_offset_x = -315
@@ -301,8 +303,6 @@ class TaskBoard:
         self.root.bind("<B1-Motion>", self.on_drag_motion)
         self.root.bind("<ButtonRelease-1>", self.on_drop)
 
-        # Bind keyboard for offset adjustment
-        self.root.bind("<KeyPress>", self.on_key_press)
     
     def start_drag(self, event, widget, list_name, idx=None):
         if self.dragged_item:
@@ -315,22 +315,21 @@ class TaskBoard:
             'idx': idx
         }
         
-        # Get ACTUAL mouse position on screen (BEFORE any changes)
-        actual_mouse_x = self.root.winfo_pointerx()
-        actual_mouse_y = self.root.winfo_pointery()
+        # Get widget's absolute screen position BEFORE any changes
+        widget_screen_x = widget.winfo_rootx()
+        widget_screen_y = widget.winfo_rooty()
         
-        self.drag_start_x_root = actual_mouse_x
-        self.drag_start_y_root = actual_mouse_y
+        # Get mouse screen position
+        mouse_screen_x = self.root.winfo_pointerx()
+        mouse_screen_y = self.root.winfo_pointery()
         
-        # Get absolute position of widget BEFORE forgetting it
-        abs_x = widget.winfo_rootx()
-        abs_y = widget.winfo_rooty()
+        # Calculate offset (mouse relative to widget)
+        self.offset_x = mouse_screen_x - widget_screen_x
+        self.offset_y = mouse_screen_y - widget_screen_y
         
-        # Calculate offset from ACTUAL mouse to widget's top-left (this stays constant)
-        self.offset_x = actual_mouse_x - abs_x
-        self.offset_y = actual_mouse_y - abs_y
-        
-        print(f"Initial offset - X: {self.offset_x}, Y: {self.offset_y}")  # Debug
+        # Store for drag detection
+        self.drag_start_x_root = mouse_screen_x
+        self.drag_start_y_root = mouse_screen_y
         
         # Forget current packing
         widget.pack_forget()
@@ -347,25 +346,31 @@ class TaskBoard:
             self.drag_data['list_data'] = list_data
             self.dragged_item = self.create_list_ghost(list_name, list_data)
         
-        # Place ghost at exact widget position (convert screen coords to root-relative)
-        ghost_x = abs_x - self.root.winfo_rootx()
-        ghost_y = abs_y - self.root.winfo_rooty()
+        # Place ghost at widget's screen position (converted to root-relative)
+        root_screen_x = self.root.winfo_rootx()
+        root_screen_y = self.root.winfo_rooty()
         
-        self.dragged_item.place(in_=self.root, x=ghost_x, y=ghost_y)
+        ghost_x = widget_screen_x - root_screen_x
+        ghost_y = widget_screen_y - root_screen_y
+        
+        self.dragged_item.place(x=ghost_x, y=ghost_y)
         self.dragged_item.lift()
 
     def on_drag_motion(self, event):
         if self.dragged_item:
-            # Get ACTUAL mouse position (screen coordinates)
-            actual_mouse_x = self.root.winfo_pointerx()
-            actual_mouse_y = self.root.winfo_pointery()
+            # Get current mouse screen position
+            mouse_screen_x = self.root.winfo_pointerx()
+            mouse_screen_y = self.root.winfo_pointery()
             
-            # Position ghost maintaining the SAME offset
-            # Convert to root-relative: screen_pos - root_screen_pos - offset
-            x = actual_mouse_x - self.root.winfo_rootx() - self.offset_x
-            y = actual_mouse_y - self.root.winfo_rooty() - self.offset_y
+            # Get root's screen position
+            root_screen_x = self.root.winfo_rootx()
+            root_screen_y = self.root.winfo_rooty()
             
-            self.dragged_item.place(x=x, y=y)
+            # Calculate ghost position: (mouse - root) - offset
+            ghost_x = (mouse_screen_x - root_screen_x) - self.offset_x
+            ghost_y = (mouse_screen_y - root_screen_y) - self.offset_y
+            
+            self.dragged_item.place(x=ghost_x, y=ghost_y)
     
     def on_drop(self, event):
         if not self.dragged_item:
@@ -791,26 +796,28 @@ class TaskBoard:
         entry.bind("<FocusOut>", save)
 
     def render_card(self, parent, list_name, card, idx):
+        # Get card width if stored, default to 260
+        card_width = card.get('width', 260)
+        
         card_frame = ctk.CTkFrame(
             parent,
             corner_radius=8,
             fg_color="#313244",
-            height=70
+            width=card_width
         )
         card_frame.pack(fill="x", padx=5, pady=3)
-        card_frame.pack_propagate(False)
+        card_frame.pack_propagate(True)  # CHANGED: Allow auto-height
         
         # Card top frame for title and delete button
-        card_top = ctk.CTkFrame(card_frame, fg_color="transparent", height=30)
+        card_top = ctk.CTkFrame(card_frame, fg_color="transparent")
         card_top.pack(fill="x", padx=10, pady=(10, 0))
-        card_top.pack_propagate(False)
         
-        # Card title
+        # Card title with dynamic wrapping
         title_label = ctk.CTkLabel(
             card_top,
             text=card["title"],
             font=(self.font_family, 14),
-            wraplength=240,
+            wraplength=card_width - 60,  # Account for padding and delete button
             anchor="w",
             justify="left"
         )
@@ -831,7 +838,7 @@ class TaskBoard:
         
         # Bottom frame for date and drag handle
         card_bottom = ctk.CTkFrame(card_frame, fg_color="transparent")
-        card_bottom.pack(fill="x", padx=10, pady=(5, 10))
+        card_bottom.pack(fill="x", padx=10, pady=(5, 5))
         
         # Card date
         ctk.CTkLabel(
@@ -854,31 +861,64 @@ class TaskBoard:
         
         # Bind drag ONLY to the drag handle
         drag_handle.bind("<Button-1>", lambda e, ln=list_name, i=idx: self.start_drag(e, card_frame, ln, i))
+        
+        # Resize handle (bottom-right corner)
+        resize_handle = ctk.CTkLabel(
+            card_bottom,
+            text="⋰",
+            font=(self.font_family, 14, "bold"),
+            text_color="#6c7086",
+            cursor="size_nw_se"
+        )
+        resize_handle.pack(side="right", padx=2)
+        
+        # Bind resize
+        resize_handle.bind("<Button-1>", lambda e: self.start_resize_card(e, card_frame, list_name, idx, card))
     
-    def on_key_press(self, event):
-        """Adjust ghost offset in real-time with arrow keys"""
-        if not self.dragged_item:
-            return
-        
-        step = 5  # pixels to adjust per key press
-        
-        if event.keysym == 'Up':
-            self.offset_y -= step
-        elif event.keysym == 'Down':
-            self.offset_y += step
-        elif event.keysym == 'Left':
-            self.offset_x -= step
-        elif event.keysym == 'Right':
-            self.offset_x += step
-        
-        # Immediately update ghost position
-        if self.dragged_item:
-            x = self.root.winfo_pointerx() - self.root.winfo_rootx() - self.offset_x
-            y = self.root.winfo_pointery() - self.root.winfo_rooty() - self.offset_y
-            self.dragged_item.place(x=x, y=y)
+    def start_resize_card(self, event, card_frame, list_name, idx, card):
+        """Start resizing a card"""
+        self.resize_data = {
+            'card_frame': card_frame,
+            'list_name': list_name,
+            'idx': idx,
+            'card': card,
+            'start_x': event.x_root,
+            'start_width': card.get('width', 260)
+        }
+        self.root.bind("<B1-Motion>", self.on_resize_card_motion)
+        self.root.bind("<ButtonRelease-1>", self.on_resize_card_end)
+
+    def on_resize_card_motion(self, event):
+        """Handle card resize motion"""
+        if hasattr(self, 'resize_data'):
+            delta_x = event.x_root - self.resize_data['start_x']
+            new_width = max(150, self.resize_data['start_width'] + delta_x)
             
-            # Print current offset values
-            print(f"Offset X: {self.offset_x}, Offset Y: {self.offset_y}")
+            self.resize_data['card_frame'].configure(width=new_width)
+
+    def on_resize_card_end(self, event):
+        """End card resize"""
+        if hasattr(self, 'resize_data'):
+            delta_x = event.x_root - self.resize_data['start_x']
+            new_width = max(150, self.resize_data['start_width'] + delta_x)
+            
+            # Save the new width
+            list_name = self.resize_data['list_name']
+            idx = self.resize_data['idx']
+            self.boards[self.current_board]['lists'][list_name]['cards'][idx]['width'] = new_width
+            
+            self.save_data()
+            self.render_list_cards(list_name)
+            
+            # Unbind resize events
+            self.root.unbind("<B1-Motion>")
+            self.root.unbind("<ButtonRelease-1>")
+            
+            # Re-bind drag events
+            self.root.bind("<B1-Motion>", self.on_drag_motion)
+            self.root.bind("<ButtonRelease-1>", self.on_drop)
+            
+            del self.resize_data
 
 # Run the application
 
