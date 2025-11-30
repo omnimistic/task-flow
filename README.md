@@ -1,5 +1,7 @@
 # Task Flow
 
+![Header](for_readme/header.png)
+
 A free and open-source (FOSS) alternative to Trello that runs entirely on your local device. Manage tasks, boards, and workflows offline with a modern desktop interface. Currently under active development.
 
 ## Features
