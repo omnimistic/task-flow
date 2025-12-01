@@ -796,8 +796,9 @@ class TaskBoard:
         entry.bind("<FocusOut>", save)
 
     def render_card(self, parent, list_name, card, idx):
-        # Get card width if stored, default to 260
+        # Get card dimensions if stored
         card_width = card.get('width', 260)
+        card_height = card.get('height', None)  # None = auto height
         
         card_frame = ctk.CTkFrame(
             parent,
@@ -805,8 +806,14 @@ class TaskBoard:
             fg_color="#313244",
             width=card_width
         )
+        
+        if card_height:
+            card_frame.configure(height=card_height)
+            card_frame.pack_propagate(False)
+        else:
+            card_frame.pack_propagate(True)
+        
         card_frame.pack(fill="x", padx=5, pady=3)
-        card_frame.pack_propagate(True)  # CHANGED: Allow auto-height
         
         # Card top frame for title and delete button
         card_top = ctk.CTkFrame(card_frame, fg_color="transparent")
@@ -817,7 +824,7 @@ class TaskBoard:
             card_top,
             text=card["title"],
             font=(self.font_family, 14),
-            wraplength=card_width - 60,  # Account for padding and delete button
+            wraplength=card_width - 60,
             anchor="w",
             justify="left"
         )
@@ -836,7 +843,7 @@ class TaskBoard:
             command=lambda: self.delete_card_dialog(list_name, idx)
         ).pack(side="right", padx=5, pady=2)
         
-        # Bottom frame for date and drag handle
+        # Bottom frame for date and handles
         card_bottom = ctk.CTkFrame(card_frame, fg_color="transparent")
         card_bottom.pack(fill="x", padx=10, pady=(5, 5))
         
@@ -849,6 +856,17 @@ class TaskBoard:
             anchor="w"
         ).pack(side="left")
         
+        # Resize handle (bottom-right corner)
+        resize_handle = ctk.CTkLabel(
+            card_bottom,
+            text="⋱",
+            font=(self.font_family, 16, "bold"),
+            text_color="#89b4fa",
+            cursor="size_nw_se"
+        )
+        resize_handle.pack(side="right", padx=2)
+        resize_handle.bind("<Button-1>", lambda e: self.start_resize_card(e, card_frame, list_name, idx, card))
+        
         # Drag handle
         drag_handle = ctk.CTkLabel(
             card_bottom,
@@ -858,23 +876,8 @@ class TaskBoard:
             cursor="hand2"
         )
         drag_handle.pack(side="right", padx=5)
-        
-        # Bind drag ONLY to the drag handle
         drag_handle.bind("<Button-1>", lambda e, ln=list_name, i=idx: self.start_drag(e, card_frame, ln, i))
-        
-        # Resize handle (bottom-right corner)
-        resize_handle = ctk.CTkLabel(
-            card_bottom,
-            text="⋰",
-            font=(self.font_family, 14, "bold"),
-            text_color="#6c7086",
-            cursor="size_nw_se"
-        )
-        resize_handle.pack(side="right", padx=2)
-        
-        # Bind resize
-        resize_handle.bind("<Button-1>", lambda e: self.start_resize_card(e, card_frame, list_name, idx, card))
-    
+
     def start_resize_card(self, event, card_frame, list_name, idx, card):
         """Start resizing a card"""
         self.resize_data = {
@@ -883,29 +886,47 @@ class TaskBoard:
             'idx': idx,
             'card': card,
             'start_x': event.x_root,
-            'start_width': card.get('width', 260)
+            'start_y': event.y_root,
+            'start_width': card.get('width', 260),
+            'start_height': card.get('height', card_frame.winfo_height())
         }
         self.root.bind("<B1-Motion>", self.on_resize_card_motion)
         self.root.bind("<ButtonRelease-1>", self.on_resize_card_end)
 
     def on_resize_card_motion(self, event):
-        """Handle card resize motion"""
+        """Handle card resize motion - both directions based on mouse movement"""
         if hasattr(self, 'resize_data'):
+            # Calculate deltas
             delta_x = event.x_root - self.resize_data['start_x']
-            new_width = max(150, self.resize_data['start_width'] + delta_x)
+            delta_y = event.y_root - self.resize_data['start_y']
             
-            self.resize_data['card_frame'].configure(width=new_width)
+            # Apply horizontal resize if mouse moved horizontally
+            if abs(delta_x) > 0:
+                new_width = max(150, self.resize_data['start_width'] + delta_x)
+                self.resize_data['card_frame'].configure(width=new_width)
+            
+            # Apply vertical resize if mouse moved vertically
+            if abs(delta_y) > 0:
+                new_height = max(70, self.resize_data['start_height'] + delta_y)
+                self.resize_data['card_frame'].configure(height=new_height)
+                self.resize_data['card_frame'].pack_propagate(False)
 
     def on_resize_card_end(self, event):
         """End card resize"""
         if hasattr(self, 'resize_data'):
-            delta_x = event.x_root - self.resize_data['start_x']
-            new_width = max(150, self.resize_data['start_width'] + delta_x)
-            
-            # Save the new width
             list_name = self.resize_data['list_name']
             idx = self.resize_data['idx']
+            
+            # Calculate final dimensions
+            delta_x = event.x_root - self.resize_data['start_x']
+            delta_y = event.y_root - self.resize_data['start_y']
+            
+            new_width = max(150, self.resize_data['start_width'] + delta_x)
+            new_height = max(70, self.resize_data['start_height'] + delta_y)
+            
+            # Save dimensions
             self.boards[self.current_board]['lists'][list_name]['cards'][idx]['width'] = new_width
+            self.boards[self.current_board]['lists'][list_name]['cards'][idx]['height'] = new_height
             
             self.save_data()
             self.render_list_cards(list_name)
