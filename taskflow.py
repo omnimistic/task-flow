@@ -817,7 +817,7 @@ class TaskBoard:
         
         # Card top frame for title and delete button
         card_top = ctk.CTkFrame(card_frame, fg_color="transparent")
-        card_top.pack(fill="x", padx=10, pady=(10, 0))
+        card_top.pack(fill="x", padx=10, pady=(10, 0), side="top")  # Added side="top"
         
         # Card title with dynamic wrapping
         title_label = ctk.CTkLabel(
@@ -843,9 +843,9 @@ class TaskBoard:
             command=lambda: self.delete_card_dialog(list_name, idx)
         ).pack(side="right", padx=5, pady=2)
         
-        # Bottom frame for date and handles
+        # Bottom frame for date and handles - PACK AT BOTTOM
         card_bottom = ctk.CTkFrame(card_frame, fg_color="transparent")
-        card_bottom.pack(fill="x", padx=10, pady=(5, 5))
+        card_bottom.pack(fill="x", padx=10, pady=(5, 5), side="bottom")  # Added side="bottom"
         
         # Card date
         ctk.CTkLabel(
@@ -901,15 +901,16 @@ class TaskBoard:
             delta_y = event.y_root - self.resize_data['start_y']
             
             # Apply horizontal resize if mouse moved horizontally
-            if abs(delta_x) > 0:
-                new_width = max(150, self.resize_data['start_width'] + delta_x)
-                self.resize_data['card_frame'].configure(width=new_width)
+            new_width = max(150, self.resize_data['start_width'] + delta_x)
+            self.resize_data['card_frame'].configure(width=new_width)
             
             # Apply vertical resize if mouse moved vertically
-            if abs(delta_y) > 0:
-                new_height = max(70, self.resize_data['start_height'] + delta_y)
-                self.resize_data['card_frame'].configure(height=new_height)
-                self.resize_data['card_frame'].pack_propagate(False)
+            new_height = max(70, self.resize_data['start_height'] + delta_y)
+            self.resize_data['card_frame'].configure(height=new_height)
+            self.resize_data['card_frame'].pack_propagate(False)
+            
+            # Force update to reflow content
+            self.resize_data['card_frame'].update_idletasks()
 
     def on_resize_card_end(self, event):
         """End card resize"""
@@ -947,4 +948,3 @@ if __name__ == "__main__":
     root = ctk.CTk()
     app = TaskBoard(root)
     root.mainloop()
-                
